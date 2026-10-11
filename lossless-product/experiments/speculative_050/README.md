@@ -40,7 +40,16 @@ or sessions. Latency, peak memory and deployment admission are not qualified.
 
 ## Reproduce
 
-From the repository root, create a CPU-only environment with uv:
+The published measurements were produced by [recorded_study.py](recorded_study.py),
+retained byte-for-byte with SHA-256
+`d0e1370abb22afd8d800d2e4066fcf0ddf0685f910f6bb220ac6ce5842aad11c`.
+The current `study.py` rejects incompatible KV shapes, dtypes, layer structures
+and lengths before continuation, instead of crashing during validation. The raw
+evidence and original runner remain unchanged; new runs record the revised
+source hash. To reproduce the historical runner specifically, substitute
+`recorded_study.py` for `study.py` below.
+
+From the repository root on Linux, create a CPU-only environment with uv:
 
 ```sh
 uv venv .venv-speculative --python 3.11
@@ -81,7 +90,17 @@ exactness diagnostics, target forward lengths and the final decision.
 
 The regression checks use tiny random Llama models without network access. They
 exercise identical/different assistants, short tails, lookup, cache offsets and
-a deliberately wrong probability. A separate control checks surplus cropping.
+a deliberately wrong probability. Additional controls reject incompatible cache
+structures/tensors/lengths without invoking the model, and check surplus cropping
+and the recorded source hash.
+
+The generation integration test runs only with Transformers 4.57.6 and PyTorch
+2.14.0 or 2.14.1 (including `+cpu` builds). Other environments skip that test;
+dependency-free checks and available PyTorch-only checks still run. CI installs
+the recorded Linux versions in a separate `speculative_cpu` job and sets
+`LOSSLESS_REQUIRE_SPECULATIVE_DEPS=1`, which fails discovery if the required
+dependencies are unavailable rather than silently skipping the integration test.
+No checkpoint download or performance campaign runs in CI.
 
 Method references: [Transformers assisted decoding](https://huggingface.co/docs/transformers/v4.57.6/en/generation_strategies#speculative-decoding)
 and [prompt lookup implementation](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/generation/candidate_generator.py).

@@ -100,23 +100,37 @@ def compare(reference, candidate, model):
     ac, bc = a.past_key_values.to_legacy_cache(), b.past_key_values.to_legacy_cache()
     kv = [tensor_diff(x, y) for al, bl in zip(ac, bc) for x, y in zip(al, bl)]
     cache_shape = len(ac) == len(bc) and all(len(x) == len(y) for x, y in zip(ac, bc))
+    cache_lengths = [a.past_key_values.get_seq_length(), b.past_key_values.get_seq_length()]
+    cache_compatible = (
+        cache_shape
+        and bool(kv)
+        and all(x["shape_dtype_equal"] for x in kv)
+        and cache_lengths[0] == cache_lengths[1]
+    )
     continuation = []
-    with torch.inference_mode():
-        caches = [copy.deepcopy(a.past_key_values), copy.deepcopy(b.past_key_values)]
-        token = a.sequences[:, -1:]
-        for _ in range(3):
-            logits = [model(token, past_key_values=c, use_cache=True).logits[:, -1] for c in caches]
-            continuation.append(tensor_diff(*logits))
-            token = logits[0].argmax(-1, keepdim=True)
+    # A malformed cache is a failed candidate, not an executable continuation.
+    # Reject it before model calls and before aggregating undefined tensor errors.
+    if cache_compatible:
+        with torch.inference_mode():
+            caches = [copy.deepcopy(a.past_key_values), copy.deepcopy(b.past_key_values)]
+            token = a.sequences[:, -1:]
+            for _ in range(3):
+                logits = [
+                    model(token, past_key_values=c, use_cache=True).logits[:, -1] for c in caches
+                ]
+                continuation.append(tensor_diff(*logits))
+                token = logits[0].argmax(-1, keepdim=True)
     result = {
         "tokens_equal": torch.equal(a.sequences, b.sequences),
         "logprobs": tensor_diff(reference["logprobs"], candidate["logprobs"]),
-        "kv_bitwise": cache_shape and bool(kv) and all(x["bitwise"] for x in kv),
-        "kv_max_abs": max(x["max_abs"] for x in kv) if cache_shape else None,
-        "kv_length": [a.past_key_values.get_seq_length(), b.past_key_values.get_seq_length()],
-        "continuation_bitwise": all(x["bitwise"] for x in continuation),
-        "continuation_max_abs": max(x["max_abs"] for x in continuation),
+        "kv_bitwise": cache_compatible and all(x["bitwise"] for x in kv),
+        "kv_max_abs": max(x["max_abs"] for x in kv) if cache_compatible else None,
+        "kv_length": cache_lengths,
+        "continuation_bitwise": bool(continuation) and all(x["bitwise"] for x in continuation),
+        "continuation_max_abs": max(x["max_abs"] for x in continuation) if continuation else None,
     }
+    if not cache_compatible:
+        result["continuation_skipped_reason"] = "cache_shape_dtype_or_length_mismatch"
     result["exact"] = all(
         [
             result["tokens_equal"],

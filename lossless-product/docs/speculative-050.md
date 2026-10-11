@@ -87,7 +87,15 @@ cannot establish a larger M2 gain or be multiplied into its reported speedup.
 - [Raw paired timings, frozen discovery selection and exactness diagnostics](assets/speculative-050.json)
 - [CPU regression checks](../tests/test_speculative_study.py)
 
-The three regression tests passed with the experiment dependencies installed,
+The original three regression tests passed with the experiment dependencies installed,
 covering acceptance/rejection, short tails, cache offsets, a wrong-probability
 control and surplus cropping. Ruff and frozen-source/evidence integrity checks
 passed. No Apple M2, Metal or CUDA execution was performed.
+
+The subsequent review fixes make invalid KV shapes, dtypes, structures or lengths
+produce a failed check before any continuation call. The original executed
+[runner](../experiments/speculative_050/recorded_study.py) and its evidence hash
+are preserved; the revised runner does not replace the source identity of these
+measurements. Optional integration checks now require the tested dependency
+versions, with a separate pinned Linux CPU CI job that fails if those dependencies
+are missing. These are evaluator/test changes, not new performance evidence.
